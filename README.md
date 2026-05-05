@@ -81,12 +81,21 @@ Yes, but bounded:
 
 Never an interview. The cap is intentional.
 
-## Usage
+## Quickstart
 
-In a Claude Code session, trigger the skill by either:
+Prerequisites: [Claude Code](https://claude.com/claude-code) installed.
 
-- Typing `/competitor-research`, or
-- Asking naturally: *"Who are our competitors for X?"* / *"Run a competitive
+```bash
+git clone https://github.com/aishwaryaashok14/maven-workshop-research-agent.git
+cd maven-workshop-research-agent
+claude
+```
+
+Once Claude Code is running in this directory, it auto-loads the skill from
+`.claude/skills/` and the subagent from `.claude/agents/`. To run the skill:
+
+- Type `/competitor-research`, or
+- Ask naturally: *"Who are our competitors for X?"* / *"Run a competitive
   analysis on Y"* / *"What's the market landscape for Z?"*
 
 The skill returns:
@@ -96,12 +105,21 @@ The skill returns:
 2. A **Gap Analysis** section with three falsifiable gaps
 3. One sharp closing question
 
+## Example output
+
+See [examples/wispr-flow-competitive-landscape.md](examples/wispr-flow-competitive-landscape.md)
+for the actual report this skill produced when run on Wispr Flow in May 2026 —
+4 competitors, gap analysis, sources cited inline. It's the canonical reference
+for what a "good" run looks like.
+
 ## File layout
 
 ```
 .
 ├── CLAUDE.md                                  # project-level instructions for Claude
 ├── README.md                                  # this file
+├── examples/
+│   └── wispr-flow-competitive-landscape.md    # sample skill output (May 2026)
 └── .claude/
     ├── skills/
     │   └── competitor-research/
