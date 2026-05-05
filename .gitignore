@@ -1,0 +1,9 @@
+# Per-user local Claude Code settings (permission allowlists, etc.)
+.claude/settings.local.json
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

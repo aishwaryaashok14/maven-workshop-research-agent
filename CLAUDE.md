@@ -1,8 +1,9 @@
 # Competitor Research Workshop
 
-This project is a small Claude Code harness for **intensive competitor research**.
-It exposes one user-invocable skill and a set of specialist subagents that the skill
-orchestrates in parallel.
+This project is a small Claude Code harness for **competitor research**.
+It exposes one user-invocable skill that does the bulk of the work itself,
+plus one specialist subagent for the one task that genuinely benefits from its
+own context window.
 
 > **Workshop note:** this CLAUDE.md is intentionally read by both Claude (every
 > session) and by learners reading the repo. The rules below explain *why* they
@@ -15,41 +16,50 @@ User → /competitor-research
          │
          ▼
   competitor-research (skill)
-   1. Asks scoping questions
-   2. Identifies 3–5 direct competitors via web search
-   3. For each competitor, fans out 4 subagents IN PARALLEL:
-        ├── research-agent       → positioning, target customer, company context
-        ├── pricing-analyst      → tiers, price points, billing model
-        ├── review-miner         → strengths + weaknesses from real users
-        └── positioning-mapper   → messaging, hero copy, differentiators
-   4. Synthesizes one 6-bullet card per competitor
-   5. Writes a Gap Analysis section
-   6. Ends with one sharp question
+   1. Asks scoping question
+   2. WebSearch → identifies 3–5 direct competitors
+   3. For each competitor, in parallel WebFetch:
+        ├── homepage  → hero copy, differentiators, top features
+        └── pricing   → tiers, price points, free tier, hidden costs
+   4. For each competitor, spawns ONE review-miner subagent in parallel:
+        └── review-miner → recurring strengths + weaknesses from real users
+   5. Synthesizes one 6-bullet card per competitor
+   6. Writes a Gap Analysis section
+   7. Ends with one sharp question
 ```
 
-The skill is the orchestrator. The subagents are workers — each has a narrow remit
-and returns structured findings only.
+## The skill / subagent split (and why)
+
+The skill **does its own research** for homepages and pricing — those are fast,
+light fetches. The skill **delegates** review mining because:
+
+- Reviews live across G2, Capterra, Reddit, HN, ProductHunt, Trustpilot — that's
+  10+ pages per competitor of dense user-voice text
+- The subagent must distill *patterns* (≥3 confirming voices across ≥2 platforms)
+  from *anecdotes* — a real reasoning task
+- Doing it inline pollutes the orchestrator's context with raw review text;
+  delegating returns a clean, structured summary
+
+This split is the workshop's central lesson: **delegate the heavy, parallelizable,
+read-intensive tasks. Keep the lightweight orchestration logic in the skill.**
 
 ---
 
 ## ⚠️ CRITICAL — non-negotiables
 
-These are the rules that, if violated, break the system's value entirely. They are
-not preferences.
+These are the rules that, if violated, break the system's value entirely.
 
 1. **Never invent pricing.** If a competitor's price isn't public, write
-   *"Not public"*. A made-up number is worse than no number — it poisons the gap
-   analysis and any downstream decision.
+   *"Not public"*. A made-up number poisons the gap analysis and any downstream
+   decision.
 2. **Never claim a single review as a pattern.** A G2 1-star rant is anecdote.
-   Patterns require ≥3 confirming voices across ≥2 platforms. The whole point of
-   `review-miner` is to filter noise from signal.
-3. **Subagents fan out in parallel, not sequentially.** With 4 competitors × 4
-   subagents = 16 agent calls — they go in *one* message with 16 tool calls, not
-   16 messages. Sequential = 16× the wall-clock time for zero quality gain.
-4. **The orchestrator (skill) does not do its own deep web searches.** Quick
-   searches to *identify* the competitor list are fine. Once the list is set, all
-   research is delegated. Mixing roles pollutes the orchestrator's context window
-   and breaks parallelism.
+   Patterns require ≥3 confirming voices across ≥2 platforms.
+3. **Review-miner subagents fan out in parallel, not sequentially.** All of them
+   go in *one* message with multiple Agent tool calls — sequential = N× the
+   wall-clock time for zero quality gain.
+4. **Don't delegate the easy stuff.** Homepage and pricing fetches are light;
+   the skill does them. Delegating fast tasks adds latency and obscures what the
+   skill is actually doing.
 5. **6 bullets per competitor card. Hard cap.** Empty bullets get an `—`. Don't
    add a 7th "for completeness" — the constraint is what forces clarity.
 
@@ -60,14 +70,13 @@ not preferences.
 | Do | Why |
 | --- | --- |
 | Prioritize sources from the **last 12 months** | Pricing, positioning, and review sentiment all decay fast. Old data looks confident but lies. |
-| **Cross-reference** every non-trivial claim against ≥2 independent sources | The company's own site is one source. You need at least one more before stating it as fact. |
+| **Cross-reference** every non-trivial claim against ≥2 independent sources | The company's own site is one source. You need at least one more. |
 | **Cite source URLs inline** for any pricing or differentiator claim | Lets the reader verify and re-check when prices change. |
-| **Translate marketing-speak into plain English** in differentiator bullets | "AI-powered next-gen platform" is noise. The reader needs to know what the product *does*. |
-| **Quote hero copy verbatim** in `positioning-mapper` output | The exact words a company chooses are signal — paraphrasing destroys it. |
+| **Quote hero copy verbatim** when you fetch a homepage | The exact words a company chooses are signal — paraphrasing destroys it. |
+| **Translate marketing-speak into plain English** in differentiator bullets | "AI-powered next-gen platform" is noise. Reader needs to know what the product *does*. |
 | **Surface contradictions** between sources rather than picking one | Two sources disagreeing is itself a finding. Hiding it is dishonest. |
-| **Flag single-source claims** with `(single-source)` | Preserves the signal but warns the reader. |
 | **Make Gap Analysis bullets falsifiable** | "No per-seat plan under $10/mo for teams <5" is testable. "Better UX" is hand-waving. |
-| **End the report with exactly one sharp question** | Forces the user to decide. The whole research pass is in service of that one decision. |
+| **End the report with exactly one sharp question** | Forces the user to decide. The whole research pass is in service of that decision. |
 
 ---
 
@@ -79,9 +88,9 @@ not preferences.
 | Don't treat the company's "We're the leader" claims as positioning | That's self-praise, not signal. Their actual *positioning* is the hero headline + ICP. |
 | Don't fabricate an enterprise tier price because the public site is vague | "Contact sales" is the answer. Inventing a number is the failure mode. |
 | Don't list every weakness ever mentioned in a review | Only recurring patterns. Listing 8 one-off complaints buries the real signal. |
-| Don't have subagents write to disk or run shell commands | They're read-only researchers. Their `tools:` list is restricted on purpose — minimal blast radius. |
+| Don't have the subagent write to disk or run shell commands | It's a read-only researcher. Its `tools:` list is restricted on purpose — minimal blast radius. |
 | Don't ask the user more than 2 clarifying questions up front | Research that begins with an interview kills momentum. Bound it. |
-| Don't retry a subagent with the same prompt if it returned "insufficient data" | Either accept the gap and surface it, or hand the next attempt a *narrower* question. Same prompt = same answer. |
+| Don't retry the subagent with the same prompt if it returned "insufficient data" | Either accept the gap or hand it a *narrower* question. Same prompt = same answer. |
 
 ---
 
@@ -89,29 +98,28 @@ not preferences.
 
 These are the design choices worth understanding *why*:
 
-**Why a skill + subagents instead of one big skill?**
-A single skill running everything in one context window would burn tokens fast and
-serialize work that has no reason to be serial. Splitting the four research
-dimensions (positioning, pricing, reviews, messaging) into specialist subagents
-means: (a) each can read deeply without polluting the others' context, (b) they
-run in true parallel, (c) the orchestrator only sees the synthesized findings.
-*Each subagent is a context window you don't have to pay for in the main thread.*
+**Why one subagent and not four?**
+Earlier drafts of this project had four specialists (one each for positioning,
+pricing, reviews, messaging). It was an impressive fan-out — and pedagogically
+confusing. Three of those tasks (homepage, pricing, messaging) were light
+fetches; delegating them added latency and obscured what the skill itself
+*does*. Reviews are the only task that genuinely earns its own context. Picking
+the **right thing to delegate** is more interesting than delegating everything.
 
-**Why are all four subagents read-only (`WebSearch`, `WebFetch`, `Read`)?**
-The `tools:` list is a security boundary, not a hint. A subagent literally cannot
-call tools outside its list. For research workers, `Bash` and `Write` would be
-attack surface for no benefit — they have nothing to write.
+**Why is the subagent read-only (`WebSearch`, `WebFetch`, `Read`)?**
+The `tools:` list is a security boundary, not a hint. A subagent literally
+cannot call tools outside its list. For a research worker, `Bash` and `Write`
+would be attack surface for no benefit — it has nothing to write.
 
 **Why hard caps (6 bullets, 2 clarifying questions, 1 closing question)?**
 Constraints force clarity. A skill with "give a thorough report" produces sludge.
-A skill with "exactly 6 bullets" produces a thing the user can actually read and
-act on. Cap the surface area; quality follows.
+A skill with "exactly 6 bullets" produces something the user can read and act on.
 
-**Why is "Unknown" required to be a valid answer?**
+**Why is "Unknown" a required valid answer?**
 The default failure mode of LLMs is to fabricate confident-sounding numbers when
-real data is missing. Explicitly making *"Not public"* a first-class output
-removes the incentive to invent. The skill checks for this — vague pricing in a
-competitor card is treated as a defect, not a feature.
+real data is missing. Making *"Not public"* a first-class output removes the
+incentive to invent. Vague pricing in a competitor card is treated as a defect,
+not a feature.
 
 **Why does the skill ask only 1–2 questions up front?**
 Research with too many gates feels like a customer service script. The skill is
@@ -127,12 +135,10 @@ the real decision happens — that's why it's the only one that's mandatory.
 .claude/
 ├── skills/
 │   └── competitor-research/
-│       └── SKILL.md           # user-invocable orchestrator
+│       └── SKILL.md           # user-invocable skill — does the work itself,
+│                              # delegates only review mining
 └── agents/
-    ├── research-agent.md      # general competitor context
-    ├── pricing-analyst.md     # pricing deep-dive
-    ├── review-miner.md        # user-voice research
-    └── positioning-mapper.md  # messaging & differentiators
+    └── review-miner.md        # the one specialist subagent
 ```
 
 ## When to use this
