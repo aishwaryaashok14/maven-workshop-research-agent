@@ -5,16 +5,17 @@ description: Research 3–5 competitors for any product or feature. Returns posi
 
 # Competitor Research
 
-You research competitors **yourself** — search the web, fetch their pages, judge
-what matters. The one task you delegate is **review mining**, because distilling
-user sentiment from 10+ scattered pages is heavy read-work that benefits from its
-own context window.
+You research competitors yourself for the light, fast tasks (search and
+homepage fetches), and you delegate the heavy work to specialist subagents:
 
-> **Workshop note:** the split between "skill does it" and "subagent does it" is
-> deliberate. Light, fast tasks (a homepage fetch, a pricing-page scan) stay in
-> the skill — that's the orchestrator's job. Heavy, parallelizable read-tasks
-> (10+ review pages per competitor, distilled into patterns) get delegated. That
-> contrast is the whole lesson.
+- `pricing-fetcher` — pricing extraction with WebFetch-first, Playwright-fallback
+- `review-miner` — distilling user sentiment from 10+ review pages
+
+> **Workshop note:** the split between "skill does it" and "subagent does it"
+> follows one rule: **delegate work that is heavy, parallelizable, and returns
+> clean structured output**. Light fetches stay in the skill. Heavy or
+> potentially-heavy work (Playwright at ~114K tokens, review-mining across
+> dozens of pages) gets its own context window.
 
 ---
 
@@ -24,63 +25,76 @@ Ask the user **once**:
 
 > "What product or feature are you researching? Who is it for?"
 
-Skip if they already gave both. Cap at **2** clarifying questions max (geography,
-segment, direct vs. adjacent). Don't run an interview.
+Skip if they already gave both. Cap at **2** clarifying questions max
+(geography, segment, direct vs. adjacent). Don't run an interview.
 
 ## Step 2 — Identify competitors
 
-Use **WebSearch** to find 3–5 direct competitors. Look for:
+Use **`WebSearch`** by default. Look for:
 
 - "best [category] tools 2025/2026"
 - G2 / Capterra / Gartner category pages
 - Reddit "alternatives to [known leader]" threads
 
-Pick **direct** competitors (same buyer, same job-to-be-done). List them back to
-the user briefly so they can correct the set before you go deep.
+**Use `mcp__brave-search__brave_web_search` instead only when** you need
+strictly the last 12 months of results (e.g., a fast-moving category where
+2-year-old listicles would be misleading). Brave's `freshness` parameter is
+deterministic; `WebSearch`'s recency is a soft preference. For most categories
+the soft preference is fine.
 
-## Step 3 — Research each competitor (do this yourself)
+Pick **direct** competitors (same buyer, same job-to-be-done). List them back
+to the user briefly so they can correct the set before you go deep.
 
-For each competitor, in **parallel WebFetch calls**, pull:
+## Step 3 — Per competitor (parallel work)
 
-1. **Homepage** — extract:
-   - Hero headline (verbatim)
-   - Subhead (verbatim)
-   - Top 3 features in homepage order
-   - Stated differentiators
-2. **Pricing page** — capture:
-   - Tier names and price points (USD/mo)
-   - Billing cadence (monthly / annual / one-time)
-   - Free tier limits
-   - Hidden costs / add-ons
-   - If pricing is "Contact sales," write that exactly. **Never invent a number.**
+For each competitor, dispatch the following **in a single message with multiple
+tool calls** so they run concurrently:
 
-Translate marketing buzzwords into plain English in your notes ("AI-powered
-next-gen platform" → what does it actually do?). But **quote the hero headline
-verbatim** — that's signal, not slop.
+### 3a. Homepage — you do this yourself (`WebFetch`)
 
-## Step 4 — Delegate review mining
+Fetch the homepage and extract:
 
-For each competitor, spawn one `review-miner` subagent. Send them all in **a
-single message with multiple Agent tool calls** so they run concurrently.
+- Hero headline (verbatim)
+- Subhead (verbatim)
+- Top 3 features in homepage order
+- Stated differentiators (translated to plain English, not paraphrased into
+  marketing-speak)
 
-**Why this one task is delegated:**
-- Reviews live across G2, Capterra, Reddit, HN, ProductHunt, Trustpilot — that's
-  10+ pages per competitor.
-- The subagent must distinguish *patterns* from *anecdotes* (≥3 confirming
-  voices across ≥2 platforms = signal). That's heavy reading + judgment.
-- Doing it inline pollutes the orchestrator's context with raw review text.
-  Doing it in a subagent returns clean structured findings.
+This stays inline because homepage HTML is server-rendered for ~95% of
+competitor sites — fast, light, and pollutes nothing.
 
-The subagent returns: recurring strengths, recurring weaknesses, sources scanned.
+### 3b. Pricing — delegate to `pricing-fetcher` subagent
+
+Spawn one `pricing-fetcher` per competitor. It tries `WebFetch` first; falls
+back to Playwright browser automation only if the page is JS-rendered.
+
+**Why this is delegated:** Playwright sessions cost ~114K tokens each. Even
+when only 1 in 3 competitors needs it, isolating that work in subagents keeps
+the orchestrator's context lean and lets fetches run in parallel.
+
+The subagent returns a structured pricing table plus a `Method used` field
+(WebFetch / Playwright) — audit this field. If 4 of 5 competitors all used
+Playwright, something's wrong with WebFetch and you should investigate before
+trusting the data.
+
+### 3c. Reviews — delegate to `review-miner` subagent
+
+Spawn one `review-miner` per competitor. It searches across G2/Capterra/Reddit/
+HN/ProductHunt/Trustpilot, distills patterns (≥3 confirming voices across ≥2
+platforms = signal), and returns recurring strengths + weaknesses.
+
+**Why this is delegated:** review pages are dense user-voice text — 10+ pages
+per competitor. Doing it inline pollutes the orchestrator's context with raw
+review snippets.
 
 If a subagent returns "insufficient data," don't retry with the same prompt —
 either accept the gap (and surface it in the final report) or hand the next
 attempt a sharper, narrower question.
 
-## Step 5 — Synthesize per-competitor cards
+## Step 4 — Synthesize per-competitor cards
 
-Combine your homepage + pricing research with the subagent's review findings into
-**exactly 6 bullets** per competitor:
+Combine your homepage research with the two subagents' findings into **exactly
+6 bullets** per competitor:
 
 ```
 ### [Competitor Name]
@@ -97,7 +111,7 @@ Hard rules:
 - Pricing must cite a source URL inline if public.
 - No marketing language in your translation.
 
-## Step 6 — Gap Analysis
+## Step 5 — Gap Analysis
 
 Add this section verbatim:
 
@@ -112,7 +126,7 @@ Each gap must be **falsifiable** — grounded in something a reader can verify.
 "Better UX" is not a gap. "No competitor offers per-seat pricing under $10/mo
 for teams under 5" is.
 
-## Step 7 — Close
+## Step 6 — Close
 
 End the report with exactly one line:
 
@@ -122,11 +136,31 @@ No summary. No "let me know if you want more." Just the question.
 
 ---
 
+## Tool selection cheat sheet
+
+| Task | Default tool | Reach for MCP when... |
+| --- | --- | --- |
+| Identify competitors | `WebSearch` | You need strict 12-month recency → `brave_web_search` |
+| Fetch a homepage | `WebFetch` | (never — homepage is light) |
+| Fetch a pricing page | `pricing-fetcher` subagent | (subagent decides internally whether Playwright is needed) |
+| Mine reviews | `review-miner` subagent | (subagent decides internally — uses Brave's news/summarizer for specific cases) |
+
+**Default principle:** built-in tools first, MCPs only when they offer
+something built-ins can't.
+
+---
+
 ## Anti-patterns (do not do)
 
-- ❌ Delegating homepage / pricing research to subagents — it's fast and light;
-  the orchestrator handles it
-- ❌ Calling review-miners sequentially per competitor instead of in parallel
+- ❌ Doing your own deep web searches once you've identified competitors —
+  delegate pricing and review work to the subagents
+- ❌ Calling subagents sequentially per competitor instead of in parallel
+- ❌ Reaching for `brave_web_search` when `WebSearch` would have been fine
+  (this wastes Brave's free-tier budget)
+- ❌ Invoking Playwright tools directly from the orchestrator — those calls
+  belong in the `pricing-fetcher` subagent so the heavy context is isolated
+- ❌ Accepting a `pricing-fetcher` report where 4 of 5 competitors used
+  Playwright — investigate WebFetch first
 - ❌ Adding a 7th bullet "for completeness"
 - ❌ Inventing pricing because the public site is vague
 - ❌ Listing every G2 complaint — only recurring patterns

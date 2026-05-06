@@ -1,8 +1,8 @@
 # Competitor Research Agent
 
-A Claude Code harness for **competitor research**. One user-invocable skill does
-the bulk of the work itself, plus one specialist subagent for the one task that
-genuinely benefits from its own context window.
+A Claude Code harness for **competitor research**. One user-invocable skill
+does the bulk of the work itself, plus two specialist subagents for the tasks
+that genuinely benefit from their own context window.
 
 ## How it works
 
@@ -13,86 +13,103 @@ User: "Run competitor research on Notion"
 Claude reads available skills → matches "competitor-research"
         │
         ▼
-┌────────────────────────────────────────────────┐
-│  SKILL: competitor-research                    │
-│  (instructions Claude follows directly)        │
-│                                                │
-│  Step 1: Ask scoping question                  │
-│  Step 2: WebSearch → pick 3–5 competitors      │
-│  Step 3: For each competitor (in parallel)     │
-│          ├── WebFetch homepage  ← skill does   │
-│          └── WebFetch pricing   ← skill does   │
-│  Step 4: For each competitor, spawn ONE        │
-│          review-miner subagent in parallel ─┐  │
-│  Step 5: Synthesize 6-bullet cards          │  │
-│  Step 6: Write Gap Analysis                 │  │
-│  Step 7: Ask the closing question           │  │
-└─────────────────────────────────────────────┼──┘
-                                              │
-            ┌─────────────────────────────────┘
-            ▼ (one per competitor, all in parallel)
+┌──────────────────────────────────────────────────┐
+│  SKILL: competitor-research                      │
+│  (instructions Claude follows directly)          │
+│                                                  │
+│  Step 1: Ask scoping question                    │
+│  Step 2: WebSearch → pick 3–5 competitors        │
+│          (Brave only for date-strict queries)    │
+│  Step 3: For each competitor (in parallel)       │
+│          ├── WebFetch homepage  ← skill does     │
+│          ├── pricing-fetcher subagent ────────┐  │
+│          └── review-miner subagent ──────────┐│  │
+│  Step 4: Synthesize 6-bullet cards          ││  │
+│  Step 5: Write Gap Analysis                 ││  │
+│  Step 6: Ask the closing question           ││  │
+└─────────────────────────────────────────────┼┼──┘
+                                              ││
+            ┌─────────────────────────────────┘│
+            ▼ (one per competitor, parallel)   │
+   ┌────────────────────────────────────┐      │
+   │ pricing-fetcher (subagent)         │      │
+   │ Tries WebFetch first (cheap).      │      │
+   │ Falls back to Playwright only if   │      │
+   │ pricing is JS-rendered (~114K tok).│      │
+   │ Returns structured tier table.     │      │
+   └────────────────────────────────────┘      │
+                                               │
+            ┌──────────────────────────────────┘
+            ▼ (one per competitor, parallel)
    ┌────────────────────────────────────┐
    │ review-miner (subagent)            │
-   │ Reads 10+ pages across G2, Reddit, │
-   │ HN, ProductHunt, Trustpilot.       │
+   │ Reads 10+ pages: G2, Reddit, HN,   │
+   │ ProductHunt, Trustpilot.           │
+   │ Uses Brave only for news +         │
+   │ summarizing long pages.            │
    │ Returns recurring strengths +      │
    │ weaknesses (≥3 voices, ≥2 plats).  │
    └────────────────────────────────────┘
 ```
 
-## The skill / subagent split — and why it matters
+## Setup
 
-This is the central design choice, and it's the workshop's main lesson.
-
-| Task | Where it runs | Why |
-| --- | --- | --- |
-| Scoping & competitor selection | **Skill** | Light reasoning + one search. Fast. |
-| Homepage research | **Skill** (parallel WebFetch) | One page per competitor. Fast and light. |
-| Pricing research | **Skill** (parallel WebFetch) | One page per competitor. Fast and light. |
-| Review mining | **Subagent** (one per competitor) | 10+ pages across G2/Reddit/HN/PH/Trustpilot. Heavy reading + judgment. Pollutes context if done inline. |
-| Synthesis & Gap Analysis | **Skill** | Needs the full picture in one place. |
-
-**Rule of thumb for delegating:** push down work that is (a) heavy enough to
-warrant its own context window, (b) parallelizable across N items, and (c) returns
-clean structured output. Anything else stays in the skill.
-
-## Skill vs. subagent — the mental model
-
-- **Skill** = a *playbook* the main Claude reads and follows. It's not a separate
-  process; it's instructions loaded into the current conversation. It can call
-  tools (WebSearch, WebFetch, etc.) directly.
-- **Subagent** = an *actual separate Claude instance* with its own context window,
-  tool access, and remit. The skill spawns it via the `Agent` tool when it has a
-  heavy, parallelizable task to offload.
-
-The user only ever talks to the **skill**. The subagent is invisible — it just
-returns a structured report that the skill folds into the final answer.
-
-## Does the skill ask questions?
-
-Yes, but bounded:
-
-| Scenario                          | Behavior                                              |
-| --------------------------------- | ----------------------------------------------------- |
-| User gives no context             | Asks one scoping question: product + audience         |
-| User already provided both        | Skips the question, confirms in one line              |
-| Scope still ambiguous             | Up to **2** clarifying questions (hard cap)           |
-| End of report                     | Always asks one closing question about the gap to own |
-
-Never an interview. The cap is intentional.
-
-## Quickstart
-
-Prerequisites: [Claude Code](https://claude.com/claude-code) installed.
+Prerequisites: [Claude Code](https://claude.com/claude-code), Node.js (for the
+MCP servers).
 
 ```bash
 git clone https://github.com/aishwaryaashok14/maven-workshop-research-agent.git
 cd maven-workshop-research-agent
+```
+
+### Required: nothing
+
+The skill works with **only the built-in tools** (`WebSearch`, `WebFetch`).
+You can run it immediately with no further setup. The MCPs below add capability
+but aren't required.
+
+### Optional: Brave Search MCP (~5 min)
+
+Brave is used for two specific things: news search (for finding recent
+fundraising / pivots / acquisitions) and AI summarization of long pages.
+Without it, the skill falls back to `WebSearch` for everything.
+
+1. Get a free API key at [brave.com/search/api](https://brave.com/search/api/)
+   (free tier ~2,000 queries/month — covers workshop usage).
+2. Copy the env template and fill in your key:
+   ```bash
+   cp .env.example .env
+   # edit .env, replace your_brave_api_key_here with your real key
+   ```
+
+### Optional: Playwright MCP (~10–15 min, demo-only recommended)
+
+Playwright is used as a fallback inside the `pricing-fetcher` subagent when a
+competitor's pricing page is JavaScript-rendered (~30–40% of modern SaaS sites).
+Without it, `pricing-fetcher` returns whatever WebFetch could extract and notes
+the limit in *Gaps & Uncertainties*.
+
+```bash
+npx playwright install chromium
+```
+
+> **For workshops:** because Playwright requires browser binaries (~150 MB) and
+> can fail on locked-down corporate machines, treat this as **demo-only** —
+> install it on the instructor's machine, show it working, and leave it as
+> *"here's where you'd take this next"* for participants.
+
+The `.mcp.json` declares both servers; Claude Code picks them up automatically
+on session start.
+
+## Quickstart
+
+Once setup is done, open Claude Code in this repo:
+
+```bash
 claude
 ```
 
-Once Claude Code is running in this directory, it auto-loads the skill from
-`.claude/skills/` and the subagent from `.claude/agents/`. To run the skill:
+Then trigger the skill:
 
 - Type `/competitor-research`, or
 - Ask naturally: *"Who are our competitors for X?"* / *"Run a competitive
@@ -112,28 +129,85 @@ for the actual report this skill produced when run on Wispr Flow in May 2026 —
 4 competitors, gap analysis, sources cited inline. It's the canonical reference
 for what a "good" run looks like.
 
+## Evaluating the skill
+
+Ground truth dataset and eval workflow live in [docs/eval-ground-truth.md](docs/eval-ground-truth.md)
+and [runs/](runs/). The flow:
+
+1. Run the skill on the 10 inputs in the ground truth file. Save each output to
+   `runs/<date>/case-NN-*.md`.
+2. Run `/skill-evaluator` against the ground truth + your run directory.
+3. Use the *Fix to make* output to patch [SKILL.md](.claude/skills/competitor-research/SKILL.md).
+4. Don't ship below 8/10.
+
+See [runs/README.md](runs/README.md) for the full workflow.
+
+## The skill / subagent split — and why it matters
+
+This is the central design choice, and it's the workshop's main lesson.
+
+| Task | Where it runs | Why |
+| --- | --- | --- |
+| Scoping & competitor selection | **Skill** | Light reasoning + one search. Fast. |
+| Homepage research | **Skill** (parallel WebFetch) | Server-rendered for ~95% of sites. Fast and light. |
+| Pricing research | **Subagent** (`pricing-fetcher`) | WebFetch first; Playwright as fallback can hit ~114K tokens — isolate it. |
+| Review mining | **Subagent** (`review-miner`) | 10+ pages across G2/Reddit/HN/PH/Trustpilot per competitor. Heavy reading + judgment. |
+| Synthesis & Gap Analysis | **Skill** | Needs the full picture in one place. |
+
+**Rule of thumb for delegating:** push down work that is (a) heavy enough to
+warrant its own context window, (b) parallelizable across N items, and (c)
+returns clean structured output. Anything else stays in the skill.
+
+## Skill vs. subagent — the mental model
+
+- **Skill** = a *playbook* the main Claude reads and follows. It's not a separate
+  process; it's instructions loaded into the current conversation. It can call
+  tools (WebSearch, WebFetch, etc.) directly.
+- **Subagent** = an *actual separate Claude instance* with its own context window,
+  tool access, and remit. The skill spawns it via the `Agent` tool when it has a
+  heavy, parallelizable task to offload.
+
+The user only ever talks to the **skill**. The subagents are invisible — they
+return structured reports that the skill folds into the final answer.
+
+## Does the skill ask questions?
+
+Yes, but bounded:
+
+| Scenario                          | Behavior                                              |
+| --------------------------------- | ----------------------------------------------------- |
+| User gives no context             | Asks one scoping question: product + audience         |
+| User already provided both        | Skips the question, confirms in one line              |
+| Scope still ambiguous             | Up to **2** clarifying questions (hard cap)           |
+| End of report                     | Always asks one closing question about the gap to own |
+
+Never an interview. The cap is intentional.
+
 ## File layout
 
 ```
 .
-├── CLAUDE.md                                  # project-level instructions for Claude
+├── .mcp.json                                  # MCP server config
+├── .env.example                               # template for BRAVE_API_KEY
+├── CLAUDE.md                                  # project-level instructions
 ├── README.md                                  # this file
+├── docs/
+│   └── eval-ground-truth.md                   # 10 eval cases
 ├── examples/
-│   └── wispr-flow-competitive-landscape.md    # sample skill output (May 2026)
+│   └── wispr-flow-competitive-landscape.md    # sample skill output
+├── runs/
+│   ├── README.md                              # eval workflow
+│   └── _template/                             # case stubs for each eval pass
 └── .claude/
     ├── skills/
-    │   └── competitor-research/
-    │       └── SKILL.md                       # user-invocable skill (does the work)
+    │   ├── competitor-research/SKILL.md       # the skill
+    │   └── skill-evaluator/SKILL.md           # the eval scorer
     └── agents/
-        └── review-miner.md                    # the one specialist subagent
+        ├── pricing-fetcher.md                 # subagent: pricing
+        └── review-miner.md                    # subagent: reviews
 ```
 
-The subagent's wiring:
-
-- **tools**: `WebSearch`, `WebFetch`, `Read` (read-only — no write/edit access)
-- **model**: `claude-opus-4-6`
-
-## Design conventions (enforced by the skill + subagent)
+## Design conventions (enforced by the skill + subagents)
 
 - **Recency bias** — prioritize sources from the last 12 months; flag older
 - **Cross-referencing** — every non-trivial claim needs ≥2 independent sources
@@ -143,3 +217,5 @@ The subagent's wiring:
 - **Patterns, not anecdotes** — one G2 complaint is noise; ≥3 across ≥2 platforms
   is signal
 - **Unknown is valid** — *"Pricing not public"* beats an invented number
+- **Default to built-in tools** — reach for MCPs only when they offer something
+  built-ins can't
