@@ -68,14 +68,21 @@ Two MCP servers are wired into this repo:
 - **`brave-search`** — requires `BRAVE_API_KEY` (free tier at brave.com/search/api).
   If not configured, the Brave tools simply won't be available and the skill
   falls back to `WebSearch` for everything. **Optional but recommended.**
-- **`playwright`** — auto-installs via `npx`. Requires Node + browser binaries
-  (`npx playwright install chromium`, ~150 MB). **Optional.** If unavailable,
-  `pricing-fetcher` returns whatever WebFetch could extract and notes the limit
-  in *Gaps & Uncertainties*.
+- **`playwright`** — auto-installs via `npx`. Browser binaries (~165 MB) are
+  installed by running `bash scripts/setup.sh` once after cloning. The script
+  is idempotent: first run downloads Chromium; subsequent runs exit in <1 sec.
+  If the install fails (locked-down network), Playwright tools simply won't be
+  available and `pricing-fetcher` falls back to WebFetch-only.
 
 Both servers are declared so any contributor cloning the repo gets the wiring
-for free; the only manual step is setting `BRAVE_API_KEY` (or `cp .env.example .env`)
-and optionally running the Playwright install.
+for free. Manual setup steps a student takes after cloning:
+
+1. **Run `bash scripts/setup.sh`** to install Chromium (only if they want
+   Playwright fallback for JS-rendered pricing).
+2. **Set `BRAVE_API_KEY`** via `cp .env.example .env` and editing the file
+   (only if they want Brave's news/summarizer features).
+
+Both are optional — the skill works on built-in `WebSearch` + `WebFetch` alone.
 
 ---
 

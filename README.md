@@ -82,24 +82,30 @@ Without it, the skill falls back to `WebSearch` for everything.
    # edit .env, replace your_brave_api_key_here with your real key
    ```
 
-### Optional: Playwright MCP (~10–15 min, demo-only recommended)
+### Optional: Playwright MCP (~1–2 min, one-time)
 
 Playwright is used as a fallback inside the `pricing-fetcher` subagent when a
 competitor's pricing page is JavaScript-rendered (~30–40% of modern SaaS sites).
 Without it, `pricing-fetcher` returns whatever WebFetch could extract and notes
 the limit in *Gaps & Uncertainties*.
 
+**Run this once** after cloning to download Chromium (~165 MB):
+
 ```bash
-npx playwright install chromium
+bash scripts/setup.sh
 ```
 
-> **For workshops:** because Playwright requires browser binaries (~150 MB) and
-> can fail on locked-down corporate machines, treat this as **demo-only** —
-> install it on the instructor's machine, show it working, and leave it as
-> *"here's where you'd take this next"* for participants.
+The script is **idempotent** — if Chromium is already installed it exits in
+under a second, so you can re-run it any time without harm.
 
-The `.mcp.json` declares both servers; Claude Code picks them up automatically
-on session start.
+> **If the install fails** (corporate firewall, locked-down machine), Playwright
+> simply won't be available — the skill still works, it just falls back to
+> WebFetch-only for pricing extraction. The `pricing-fetcher` subagent notes
+> this in its *Gaps & Uncertainties* section, so the limitation is visible
+> rather than silent.
+
+The `.mcp.json` declares both MCP servers; Claude Code picks them up
+automatically on session start.
 
 ## Quickstart
 
