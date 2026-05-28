@@ -40,7 +40,23 @@ Brave; you just lose the news-recency edge.
    - ProductHunt comments and reviews
    - Twitter/X if users discuss it
    - Trustpilot for consumer products
-2. Read **at least 10 distinct reviews/comments** before drawing conclusions.
+2. **Read search snippets first, fetch sparingly.** Search result snippets
+   often contain the sentiment itself ("UI is great but export is broken").
+   A pattern is established once ≥3 snippets across ≥2 platforms agree —
+   you do not need to fetch every page to confirm it. Aim for **~3 WebFetches
+   per competitor**, allocated like this:
+   - **One mandatory aggregator fetch** (G2, Capterra, or Trustpilot) — needed
+     to (a) check for fake-review clusters (identical wording, 5-star bursts
+     within days) which snippets cannot reveal, and (b) ground at least one
+     finding in a full-context read with reliable dates.
+   - **Up to two additional fetches** only when: a snippet is ambiguous and the
+     pattern hinges on it, OR you need a verbatim quote with date for the
+     report.
+   - Everything else: trust the snippets.
+
+   Snippets are weaker evidence than full reads — they can be stale, out of
+   context, or extracted misleadingly. Treat a snippet-only pattern as
+   tentative; a pattern confirmed by the aggregator fetch is solid.
 3. Look for **patterns**: a complaint mentioned by 1 user is anecdote; mentioned
    by ≥3 users across ≥2 platforms is signal.
 4. Weight recent feedback (last 12 months) higher than older reviews.
